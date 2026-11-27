@@ -273,17 +273,23 @@ export function createTranslator(config, log = () => {}) {
       // 1) 免费源优先批量：Bing（质量最好）→ Libre（兜底）
       if (config.provider !== 'mymemory') {
         const B = config.bingBatchSize || 12
+        const CONC = Math.max(1, Math.min(4, config.bingConcurrency || 2))
+        const chunks = []
+        for (let i = 0; i < missingTexts.length; i += B) {
+          chunks.push({ idxs: missing.slice(i, i + B), part: missingTexts.slice(i, i + B) })
+        }
         let bingBroken = false
-        for (let i = 0; i < missingTexts.length && !bingBroken; i += B) {
-          const idxs = missing.slice(i, i + B)
-          const part = idxs.map((gi) => texts[gi])
-          try {
-            const gap = Date.now() - lastCall
-            if (gap < minGap) await sleep(minGap - gap)
-            lastCall = Date.now()
-            const out = await bingBatch(part, to)
-            idxs.forEach((gi, k) => { results[gi] = out[k]; cache.set(to, texts[gi], out[k]) })
-          } catch (e) { log(`[bing-batch] ${e.message}`); bingBroken = true }
+        for (let i = 0; i < chunks.length && !bingBroken; i += CONC) {
+          const group = chunks.slice(i, i + CONC)
+          const outs = await Promise.all(group.map(async (ch) => {
+            try { return await bingBatch(ch.part, to) }
+            catch (e) { log(`[bing-batch] ${e.message}`); bingBroken = true; return null }
+          }))
+          for (let g = 0; g < group.length; g++) {
+            const out = outs[g]
+            if (!out) continue
+            group[g].idxs.forEach((gi, k) => { results[gi] = out[k]; cache.set(to, texts[gi], out[k]) })
+          }
         }
         const rem = missing.filter((gi) => results[gi] === undefined)
         for (let i = 0; i < rem.length; i += 15) {

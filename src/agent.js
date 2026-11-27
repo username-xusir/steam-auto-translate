@@ -247,7 +247,18 @@
       if (!selfOnly && full.length > direct.length * 2 + 120) continue
       out.push({ el: el, score: contentScore(el), text: full, self: selfOnly })
     }
-    out.sort(function (a, b) { return b.score - a.score })
+    // 从上到下优先；屏幕内（视口附近）最优先
+    var vh = window.innerHeight || 800
+    for (var s0 = 0; s0 < out.length; s0++) {
+      var rr = out[s0].el.getBoundingClientRect()
+      out[s0].pos = rr.top + (window.pageYOffset || document.documentElement.scrollTop || 0)
+      out[s0].near = rr.bottom > -300 && rr.top < vh + 400
+    }
+    out.sort(function (a, b) {
+      if (a.near !== b.near) return a.near ? -1 : 1
+      if (a.pos !== b.pos) return a.pos - b.pos
+      return b.score - a.score
+    })
     // 只对「整块」候选做最外层过滤；self 候选保留，内部块级元素继续各自翻译
     var blockSet = new Set()
     for (var i2 = 0; i2 < out.length; i2++) if (!out[i2].self) blockSet.add(out[i2].el)
@@ -332,8 +343,11 @@
 
   function flush() {
     if (!state.queue.length || !state.enabled) return
+    // 第一批小一点，让屏幕内内容尽快出现；之后加大批量
+    var maxN = state.inserted === 0 ? 12 : 36
+    var maxC = state.inserted === 0 ? 1800 : 5000
     var batch = [], chars = 0
-    while (state.queue.length && batch.length < 24 && chars < 3200) {
+    while (state.queue.length && batch.length < maxN && chars < maxC) {
       var it = state.queue.shift()
       if (state.done.has(it.el)) continue
       batch.push(it); chars += it.text.length

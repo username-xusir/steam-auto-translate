@@ -19,9 +19,10 @@ export function defaultConfig() {
     targetLang: 'zh-CN',
     autoTranslate: true,
     displayMode: 'replace',        // replace（仅译文） | bilingual（原文+译文）
-    minGapMs: 500,
+    minGapMs: 100,
     libreURL: 'https://translate.tedomum.net',
     bingBatchSize: 12,
+    bingConcurrency: 2,
     maxSegments: 200,
     imageOcr: true,                // 图片文字 OCR（Windows 自带 OCR）
     exitOnSteamClose: false,       // true：Steam 关闭后进程退出（配合 launch 可零常驻）
