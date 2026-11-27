@@ -26,11 +26,29 @@ function runCommandString(extra) {
 function reg(...args) {
   try { execFileSync('reg', args, { encoding: 'latin1', windowsHide: true }); return true } catch { return false }
 }
+// 生成隐藏启动器（wscript 运行，不弹控制台窗口）
+function writeHiddenLauncher() {
+  const vbs = path.join(configDir(), 'start-hidden.vbs')
+  const cmd = runCommandString(['ensure', '--hidden'])
+  const body = 'Set sh = CreateObject("WScript.Shell")\r\n' +
+    'sh.Run "' + cmd.replace(/"/g, '""') + '", 0, False\r\n'
+  fs.mkdirSync(configDir(), { recursive: true })
+  fs.writeFileSync(vbs, body, 'utf8')
+  return vbs
+}
 function setAutostart() {
-  return reg('add', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/t', 'REG_SZ', '/d', runCommandString(['watch', '--hidden']), '/f')
+  const vbs = writeHiddenLauncher()
+  const runCmd = `wscript.exe //nologo "${vbs}"`
+  const ok = reg('add', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/t', 'REG_SZ', '/d', runCmd, '/f')
+  // 守护：每 5 分钟检查一次，没在跑就拉起来
+  try {
+    execFileSync('schtasks', ['/Create', '/TN', 'SteamAutoTranslateGuard', '/TR', runCmd, '/SC', 'MINUTE', '/MO', '5', '/F'], { stdio: 'ignore', windowsHide: true })
+  } catch {}
+  return ok
 }
 function removeAutostart() {
   reg('delete', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/f')
+  try { execFileSync('schtasks', ['/Delete', '/TN', 'SteamAutoTranslateGuard', '/F'], { stdio: 'ignore', windowsHide: true }) } catch {}
 }
 function isAutostartSet() {
   try {
@@ -132,6 +150,14 @@ async function cmdWatch(hidden, forceExit) {
 }
 
 // 启动 Steam（若未运行）+ 监听器，Steam 关闭后一起退出（零常驻模式）
+// 检查并拉起监听器（自启/守护用）
+function cmdEnsure() {
+  const pid = readPid()
+  if (pid && processAlive(pid)) return
+  try { fs.unlinkSync(PID_FILE) } catch {}
+  startWatcher()
+}
+
 async function cmdLaunch() {
   const steamPath = getSteamPath()
   if (!steamPath) { console.error('未找到 Steam'); process.exit(1) }
@@ -177,6 +203,7 @@ switch (cmd) {
   case 'watch': await cmdWatch(hidden); break
   case 'start': startWatcher(); break
   case 'stop': stopWatcher(); break
+  case 'ensure': cmdEnsure(); break
   case 'launch': await cmdLaunch(); break
   case 'enable': {
     const p = getSteamPath(); if (!p) { console.error('未找到 Steam'); break }
