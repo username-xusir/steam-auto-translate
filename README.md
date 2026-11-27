@@ -33,19 +33,25 @@ agent.js 采集页面文字 → 经 sat.exe 调翻译源 → 把中文插回页�
 
 ## 安装
 
-### 方式一：发布包（推荐）
+### 方式一：双击安装包（推荐）
 
-1. 下载并解压 `SteamAutoTranslate-0.1.0.zip`
-2. 双击 `install.bat`
-   - 在 Steam 目录创建调试标记文件
-   - 设置登录时自动运行监听器
-   - 立即启动监听器
+1. 下载 `SteamAutoTranslate-Setup-0.1.0.exe`
+2. 双击运行，按提示安装（默认装到 `%LOCALAPPDATA%\SteamAutoTranslate`）
+   - 自动在 Steam 目录创建调试标记文件
+   - 自动设置登录时运行监听器
+   - 自动启动监听器，并创建开始菜单的「安装状态 / 卸载」快捷方式
 3. **完全退出 Steam 再重新打开**（标记文件必须在 Steam 启动前存在）
 4. 打开 Steam 的商店 / 创意工坊 / 社区页面，右下角出现「译」按钮
 
-> 如果 Steam 装在 `C:\Program Files (x86)\Steam` 且创建标记文件失败，右键 `install.bat` → 以管理员身份运行。
+> 如果 Steam 装在 `C:\Program Files (x86)\Steam` 且创建标记文件失败，右键安装包 → 以管理员身份运行。
 
-### 方式二：从源码运行
+### 方式二：便携 ZIP
+
+1. 下载并解压 `SteamAutoTranslate-0.1.0.zip`
+2. 双击 `install.bat`
+3. **完全退出 Steam 再重新打开**
+
+### 方式三：从源码运行
 
 需要 [Bun](https://bun.sh/) 与 Node.js：
 
