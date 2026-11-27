@@ -110,13 +110,25 @@ bun run build # 产出 dist/sat.exe
 
 关闭：`"imageOcr": false`。
 
-## 零常驻模式
+## 两种运行模式
 
-默认 `install` 会常驻一个监听器（空闲约 20–40MB，CPU 几乎为 0）。如果希望 Steam 关闭后完全不残留进程：
+### 按需模式（省内存，推荐 16GB 内存）
 
-1. `sat.exe uninstall`（取消常驻自启）
-2. 以后用 `sat.exe launch` 启动 Steam —— 它启动 Steam 并随 Steam 一起退出
-3. 可给 `sat.exe launch` 建桌面快捷方式，替代原来的 Steam 快捷方式
+- 桌面双击 **「Steam 中文版」**：启动 Steam 并开始翻译
+- 关闭 Steam 后监听器自动退出，**不占后台内存**
+- 开始菜单 → Steam 自动翻译 → **常驻模式：关** 可切到按需模式
+
+### 常驻模式
+
+- 开机自启（隐藏窗口，不弹黑框），每 5 分钟守护一次
+- 空闲约 20–40MB，CPU 几乎为 0
+- 开始菜单 → Steam 自动翻译 → **常驻模式：开** 可切回常驻
+
+切换命令：
+```bash
+sat.exe autostart off   # 关闭常驻，改用桌面「Steam 中文版」
+sat.exe autostart on    # 恢复开机自启 + 守护
+```
 
 ## 卸载
 
