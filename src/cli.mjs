@@ -10,7 +10,11 @@ import {
   debugPortUp, listTargets, DEFAULT_PORT,
 } from './steam.mjs'
 
-const RUN_KEY = 'SteamAutoTranslate'
+const RUN_KEY = 'STranslateM'
+const OLD_RUN_KEY = 'SteamAutoTranslate'
+const GUARD_TASK = 'STranslateMGuard'
+const AUTO_TASK = 'STranslateMAuto'
+const OLD_TASK = 'SteamAutoTranslateGuard'
 const PID_FILE = path.join(configDir(), 'watcher.pid')
 
 function selfArgs(extra) {
@@ -26,29 +30,22 @@ function runCommandString(extra) {
 function reg(...args) {
   try { execFileSync('reg', args, { encoding: 'latin1', windowsHide: true }); return true } catch { return false }
 }
-// 生成隐藏启动器（wscript 运行，不弹控制台窗口）
-function writeHiddenLauncher() {
-  const vbs = path.join(configDir(), 'start-hidden.vbs')
-  const cmd = runCommandString(['ensure', '--hidden'])
-  const body = 'Set sh = CreateObject("WScript.Shell")\r\n' +
-    'sh.Run "' + cmd.replace(/"/g, '""') + '", 0, False\r\n'
-  fs.mkdirSync(configDir(), { recursive: true })
-  fs.writeFileSync(vbs, body, 'utf8')
-  return vbs
-}
-function setAutostart() {
-  const vbs = writeHiddenLauncher()
-  const runCmd = `wscript.exe //nologo "${vbs}"`
-  const ok = reg('add', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/t', 'REG_SZ', '/d', runCmd, '/f')
-  // 守护：每 5 分钟检查一次，没在跑就拉起来
+function schtaskCreate(name, tr, sc, mo) {
+  // 写临时 .ps1 再 -File 执行：避免 Bun 传参时把 /TR 里的引号拆坏
   try {
-    execFileSync('schtasks', ['/Create', '/TN', 'SteamAutoTranslateGuard', '/TR', runCmd, '/SC', 'MINUTE', '/MO', '5', '/F'], { stdio: 'ignore', windowsHide: true })
-  } catch {}
-  return ok
+    const ps1 = path.join(process.env.TEMP || configDir(), 'sat-task-' + name + '.ps1')
+    const line = 'schtasks /Create /TN ' + psQuote(name) + ' /TR ' + psQuote(tr) + ' /SC ' + sc + (mo ? ' /MO ' + mo : '') + ' /F\r\n'
+    fs.writeFileSync(ps1, line, 'utf8')
+    execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1], { stdio: 'ignore', windowsHide: true })
+    try { fs.unlinkSync(ps1) } catch {}
+    return true
+  } catch (e) {
+    try { console.log('schtasks 创建失败: ' + String(e.stderr || e.message).slice(0, 200)) } catch {}
+    return false
+  }
 }
-function removeAutostart() {
-  reg('delete', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/f')
-  try { execFileSync('schtasks', ['/Delete', '/TN', 'SteamAutoTranslateGuard', '/F'], { stdio: 'ignore', windowsHide: true }) } catch {}
+function schtaskDelete(name) {
+  try { execFileSync('schtasks', ['/Delete', '/TN', name, '/F'], { stdio: 'ignore', windowsHide: true }) } catch {}
 }
 
 // 写一个隐藏运行的 VBS（可选弹窗提示）
@@ -57,7 +54,7 @@ function writeVbs(name, cmd, msg) {
   let body = 'Set sh = CreateObject("WScript.Shell")\r\n'
   if (msg) {
     body += 'sh.Run "' + cmd.replace(/"/g, '""') + '", 0, True\r\n'
-    body += 'MsgBox "' + msg.replace(/"/g, '""') + '", 64, "Steam 自动翻译"\r\n'
+    body += 'MsgBox "' + msg.replace(/"/g, '""') + '", 64, "STranslateM"\r\n'
   } else {
     body += 'sh.Run "' + cmd.replace(/"/g, '""') + '", 0, False\r\n'
   }
@@ -65,24 +62,58 @@ function writeVbs(name, cmd, msg) {
   fs.writeFileSync(f, body, 'utf8')
   return f
 }
+function ensureVbs(auto) {
+  return writeVbs(auto ? 'STranslateM-ensure-auto.vbs' : 'STranslateM-ensure.vbs',
+    runCommandString(['ensure', ...(auto ? ['--auto'] : []), '--hidden']))
+}
+
+// 常驻模式：登录自启 + 5 分钟守护（监听器一直在线）
+function setResidentAutostart() {
+  const vbs = ensureVbs(false)
+  const runCmd = `wscript.exe //nologo "${vbs}"`
+  const ok = reg('add', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/t', 'REG_SZ', '/d', runCmd, '/f')
+  reg('delete', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', OLD_RUN_KEY, '/f')
+  schtaskCreate(GUARD_TASK, runCmd, 'MINUTE', '5')
+  schtaskDelete(AUTO_TASK)
+  schtaskDelete(OLD_TASK)
+  return ok
+}
+
+// 按需模式：不常驻；每 1 分钟检查一次，Steam 在跑才拉起监听器（Steam 关闭即退出）
+function setAutoTask() {
+  const vbs = ensureVbs(true)
+  const runCmd = `wscript.exe //nologo "${vbs}"`
+  reg('delete', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/f')
+  reg('delete', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', OLD_RUN_KEY, '/f')
+  schtaskDelete(GUARD_TASK)
+  schtaskDelete(OLD_TASK)
+  return schtaskCreate(AUTO_TASK, runCmd, 'MINUTE', '1')
+}
+
+function removeAllAutostart() {
+  reg('delete', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY, '/f')
+  reg('delete', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', OLD_RUN_KEY, '/f')
+  schtaskDelete(GUARD_TASK)
+  schtaskDelete(AUTO_TASK)
+  schtaskDelete(OLD_TASK)
+}
 
 function psQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'" }
 
-// 创建桌面「Steam 中文版」与开始菜单快捷方式（按需模式）
 function createShortcuts() {
   const steamPath = getSteamPath() || ''
-  const launchVbs = writeVbs('launch-hidden.vbs', runCommandString(['launch']))
-  const onVbs = writeVbs('autostart-on.vbs', runCommandString(['autostart', 'on']), '已切换为常驻模式（开机自启）。')
-  const offVbs = writeVbs('autostart-off.vbs', runCommandString(['autostart', 'off']), '已关闭常驻模式。以后请用桌面「Steam 中文版」按需启动。')
-  const sm = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Steam 自动翻译')
+  const launchVbs = writeVbs('STranslateM-launch.vbs', runCommandString(['launch']))
+  const onVbs = writeVbs('STranslateM-on.vbs', runCommandString(['autostart', 'on']), '已切换为常驻模式（开机自启）。')
+  const offVbs = writeVbs('STranslateM-off.vbs', runCommandString(['autostart', 'off']), '已切换为按需模式：不常驻，双击 Steam 后 1 分钟内自动开始翻译。')
+  const sm = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'STranslateM')
   const icon = steamPath ? path.join(steamPath, 'steam.exe') + ',0' : (process.execPath + ',0')
   const ps = [
     '$ws = New-Object -ComObject WScript.Shell',
     '$desk = [Environment]::GetFolderPath("Desktop")',
     'function Make($p,$t,$a,$i){ $s=$ws.CreateShortcut($p); $s.TargetPath=$t; if($a){$s.Arguments=$a}; if($i){$s.IconLocation=$i}; $s.Save() }',
     'New-Item -ItemType Directory -Force -Path ' + psQuote(sm) + ' | Out-Null',
-    'Make (Join-Path $desk "Steam 中文版.lnk") "wscript.exe" ' + psQuote('//nologo "' + launchVbs + '"') + ' ' + psQuote(icon),
-    'Make ' + psQuote(path.join(sm, '按需启动 Steam 中文版.lnk')) + ' "wscript.exe" ' + psQuote('//nologo "' + launchVbs + '"') + ' ' + psQuote(icon),
+    'Make (Join-Path $desk "STranslateM.lnk") "wscript.exe" ' + psQuote('//nologo "' + launchVbs + '"') + ' ' + psQuote(icon),
+    'Make ' + psQuote(path.join(sm, '立即启动 STranslateM.lnk')) + ' "wscript.exe" ' + psQuote('//nologo "' + launchVbs + '"') + ' ' + psQuote(icon),
     'Make ' + psQuote(path.join(sm, '常驻模式：开.lnk')) + ' "wscript.exe" ' + psQuote('//nologo "' + onVbs + '"'),
     'Make ' + psQuote(path.join(sm, '常驻模式：关.lnk')) + ' "wscript.exe" ' + psQuote('//nologo "' + offVbs + '"'),
   ].join('\r\n')
@@ -93,17 +124,16 @@ function createShortcuts() {
 }
 
 function removeShortcuts() {
-  const sm = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Steam 自动翻译')
-  const ps = '$d=[Environment]::GetFolderPath("Desktop"); Remove-Item -LiteralPath (Join-Path $d "Steam 中文版.lnk") -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath ' + psQuote(sm) + ' -Recurse -Force -ErrorAction SilentlyContinue'
+  const smNew = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'STranslateM')
+  const smOld = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Steam 自动翻译')
+  const ps = '$d=[Environment]::GetFolderPath("Desktop"); ' +
+    'Remove-Item -LiteralPath (Join-Path $d "STranslateM.lnk") -Force -ErrorAction SilentlyContinue; ' +
+    'Remove-Item -LiteralPath (Join-Path $d "Steam 中文版.lnk") -Force -ErrorAction SilentlyContinue; ' +
+    'Remove-Item -LiteralPath ' + psQuote(smNew) + ' -Recurse -Force -ErrorAction SilentlyContinue; ' +
+    'Remove-Item -LiteralPath ' + psQuote(smOld) + ' -Recurse -Force -ErrorAction SilentlyContinue'
   try {
     execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(ps, 'utf16le').toString('base64')], { stdio: 'ignore', windowsHide: true })
   } catch {}
-}
-function isAutostartSet() {
-  try {
-    execFileSync('reg', ['query', `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`, '/v', RUN_KEY], { encoding: 'latin1', windowsHide: true })
-    return true
-  } catch { return false }
 }
 
 function ensureConfig() {
@@ -111,14 +141,14 @@ function ensureConfig() {
   if (!fs.existsSync(configFile())) saveConfig(loadConfig())
 }
 
-function startWatcher() {
+function startWatcher(exitOnClose) {
   const pid = readPid()
   if (pid && processAlive(pid)) { console.log('监听器已在运行，PID ' + pid); return }
+  try { fs.unlinkSync(PID_FILE) } catch {}
   const args = selfArgs(['watch', '--hidden'])
-  const child = spawn(process.execPath, args, {
-    detached: true, stdio: 'ignore', windowsHide: true,
-    env: { ...process.env, SAT_QUIET: '1' },
-  })
+  const env = { ...process.env, SAT_QUIET: '1' }
+  if (exitOnClose) env.SAT_EXIT_ON_CLOSE = '1'
+  const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore', windowsHide: true, env })
   child.unref()
   try { fs.writeFileSync(PID_FILE, String(child.pid), 'utf8') } catch {}
   console.log('监听器已启动，PID ' + child.pid)
@@ -148,21 +178,21 @@ async function cmdInstall() {
   console.log('已启用 CEF 调试标记:', path.join(steamPath, '.cef-enable-remote-debugging'))
   ensureConfig()
   console.log('配置文件:', configFile())
-  if (setAutostart()) console.log('已设置开机自启（登录时运行）')
-  else console.log('警告：开机自启设置失败（可手动把本程序加入启动项）')
-  startWatcher()
+  const autoOk = setAutoTask()
+  console.log(autoOk ? '已设置按需模式（不常驻；Steam 启动后 1 分钟内自动开始）' : '设置按需模式失败')
+  cmdEnsure(true)
   createShortcuts()
   if (isSteamRunning() && !(await debugPortUp())) {
     console.log('')
     console.log('⚠ 请完全退出 Steam 后重新打开，调试端口才会生效。')
   }
   console.log('')
-  console.log('完成。打开 Steam 的商店/社区/创意工坊页面，右下角会出现「译」按钮。')
+  console.log('完成。桌面「STranslateM」可立即启动；开始菜单可切换常驻/按需模式。')
 }
 
 async function cmdUninstall() {
   stopWatcher()
-  removeAutostart()
+  removeAllAutostart()
   removeShortcuts()
   const steamPath = getSteamPath()
   if (steamPath && disableCefDebug(steamPath)) console.log('已移除 CEF 调试标记')
@@ -178,7 +208,6 @@ async function cmdStatus() {
   console.log('Steam 运行 :', running ? '是' : '否')
   console.log('调试标记   :', steamPath && debugFileEnabled(steamPath) ? '已启用' : '未启用')
   console.log('调试端口   :', up ? '已开启 (http://127.0.0.1:' + DEFAULT_PORT + ')' : '未开启')
-  console.log('开机自启   :', isAutostartSet() ? '已设置' : '未设置')
   const pid = readPid()
   console.log('监听器      :', pid && processAlive(pid) ? '运行中 PID ' + pid : '未运行')
   console.log('翻译源     :', cfg.provider, cfg.apiKey ? '(已配置 Key)' : '(未配置 Key，使用免费源)')
@@ -196,17 +225,17 @@ async function cmdWatch(hidden, forceExit) {
   let stop = false
   const onSig = () => { stop = true }
   process.on('SIGINT', onSig); process.on('SIGTERM', onSig)
-  try { await runWatcher({ port: DEFAULT_PORT, shouldStop: () => stop, exitOnSteamClose: forceExit ? true : undefined }) }
+  const force = (forceExit || process.env.SAT_EXIT_ON_CLOSE === '1') ? true : undefined
+  try { await runWatcher({ port: DEFAULT_PORT, shouldStop: () => stop, exitOnSteamClose: force }) }
   finally { try { fs.unlinkSync(PID_FILE) } catch {} }
 }
 
-// 启动 Steam（若未运行）+ 监听器，Steam 关闭后一起退出（零常驻模式）
-// 检查并拉起监听器（自启/守护用）
-function cmdEnsure() {
+// 检查并拉起监听器（自启/守护用）；auto=true 时随 Steam 关闭退出
+function cmdEnsure(auto) {
   const pid = readPid()
   if (pid && processAlive(pid)) return
   try { fs.unlinkSync(PID_FILE) } catch {}
-  startWatcher()
+  startWatcher(!!auto)
 }
 
 async function cmdLaunch() {
@@ -221,13 +250,14 @@ async function cmdLaunch() {
 
 function cmdAutostart(on) {
   if (on) {
-    const ok = setAutostart()
-    startWatcher()
-    console.log(ok ? '已开启常驻模式（开机自启 + 5 分钟守护）' : '设置常驻模式失败')
+    const ok = setResidentAutostart()
+    startWatcher(false)
+    console.log(ok ? '已切换为常驻模式（开机自启 + 5 分钟守护）' : '设置常驻模式失败')
   } else {
     stopWatcher()
-    removeAutostart()
-    console.log('已关闭常驻模式（调试标记保留）。请用桌面「Steam 中文版」按需启动。')
+    const ok = setAutoTask()
+    cmdEnsure(true)
+    console.log(ok ? '已切换为按需模式：不常驻，双击 Steam 后 1 分钟内自动开始翻译' : '设置按需模式失败')
   }
 }
 
@@ -244,18 +274,18 @@ async function cmdTest(text) {
 const [cmd, ...rest] = process.argv.slice(2)
 const hidden = rest.includes('--hidden')
 
-const HELP = `Steam 自动翻译 (sat)
+const HELP = `STranslateM
 
 用法:
-  sat install            安装：启用调试端口 + 开机自启 + 启动监听器
-  sat uninstall          卸载：移除调试标记与开机自启，停止监听器
-  sat status             查看状态
-  sat start / stop       启动 / 停止后台监听器
-  sat autostart on|off   开/关常驻模式（off 后用桌面「Steam 中文版」按需启动）
-  sat watch [--hidden]   前台运行监听器（调试用）
-  sat launch             启动 Steam 并随 Steam 开关的零常驻模式
-  sat enable / disable   仅开关 CEF 调试标记
-  sat test "text"        测试翻译源
+  STranslateM.exe install            安装：启用调试端口 + 常驻自启 + 启动监听器
+  STranslateM.exe uninstall          卸载：移除调试标记与自启，停止监听器
+  STranslateM.exe status             查看状态
+  STranslateM.exe start / stop       启动 / 停止后台监听器
+  STranslateM.exe autostart on|off   常驻模式 / 按需模式（按需：双击 Steam 1 分钟内自动翻）
+  STranslateM.exe watch [--hidden]   前台运行监听器（调试用）
+  STranslateM.exe launch             启动 Steam 并随 Steam 开关（零常驻）
+  STranslateM.exe ensure [--auto]    没在跑就拉起（自启/守护用）
+  STranslateM.exe test "text"        测试翻译源
 
 配置文件: ${configFile()}
 `
@@ -265,9 +295,9 @@ switch (cmd) {
   case 'uninstall': await cmdUninstall(); break
   case 'status': await cmdStatus(); break
   case 'watch': await cmdWatch(hidden); break
-  case 'start': startWatcher(); break
+  case 'start': startWatcher(false); break
   case 'stop': stopWatcher(); break
-  case 'ensure': cmdEnsure(); break
+  case 'ensure': cmdEnsure(rest.includes('--auto')); break
   case 'autostart': cmdAutostart(rest[0] !== 'off'); break
   case 'launch': await cmdLaunch(); break
   case 'enable': {

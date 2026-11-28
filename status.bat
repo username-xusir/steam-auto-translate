@@ -2,8 +2,8 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 echo ====================================
-echo  Steam 自动翻译 - 安装状态
+echo  STranslateM - 安装状态
 echo ====================================
-sat.exe status
+STranslateM.exe status
 echo.
 pause

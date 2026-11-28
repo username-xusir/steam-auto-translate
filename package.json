@@ -1,13 +1,15 @@
 {
   "name": "steam-auto-translate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Steam 客户端内置浏览器自动翻译（CDP 注入，Chromium 内核）",
   "type": "module",
   "license": "MIT",
-  "bin": { "sat": "src/cli.mjs" },
+  "bin": {
+    "sat": "src/cli.mjs"
+  },
   "scripts": {
     "build:agent": "node tools/build-agent.mjs",
-    "build": "node tools/build-agent.mjs && bun build --compile src/cli.mjs --outfile dist/sat.exe",
+    "build": "node tools/build-agent.mjs && bun build --compile src/cli.mjs --outfile dist/STranslateM.exe",
     "dev": "node src/cli.mjs",
     "test": "node tools/build-agent.mjs && node --test test/core.test.mjs",
     "e2e": "node tools/build-agent.mjs && node tools/e2e-edge.mjs"

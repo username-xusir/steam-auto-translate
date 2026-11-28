@@ -4,6 +4,14 @@ import path from 'node:path'
 
 export function configDir() {
   if (process.env.SAT_CONFIG_DIR) return process.env.SAT_CONFIG_DIR
+  // 便携模式：STranslateM.exe 不在安装目录时，配置就放在 exe 旁边，整个文件夹可以拷走
+  if (path.basename(process.execPath).toLowerCase() === 'stranslatem.exe') {
+    const exeDir = path.dirname(process.execPath)
+    const installed = path.join(process.env.LOCALAPPDATA || '', 'SteamAutoTranslate')
+    if (path.resolve(exeDir).toLowerCase() !== path.resolve(installed).toLowerCase()) {
+      try { fs.accessSync(exeDir, fs.constants.W_OK); return path.join(exeDir, 'STranslateM-data') } catch {}
+    }
+  }
   const base = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
   return path.join(base, 'SteamAutoTranslate')
 }

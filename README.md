@@ -1,4 +1,4 @@
-# Steam 自动翻译（SteamAutoTranslate）
+# STranslateM（SteamAutoTranslate）
 
 在 Steam 客户端里自动把英文的商店页、创意工坊、社区内容翻成中文。基于 Steam 自带的 Chromium（CEF），通过 CDP 注入翻译脚本，**不修改 Steam 本体、不装第三方浏览器扩展**。
 
@@ -21,9 +21,9 @@ Steam 客户端 UI 本质是 Chromium（CEF）。在 Steam 安装目录放一个
 ```
 Steam 启动 → 读取 .cef-enable-remote-debugging → steamwebhelper 开 8080 调试端口
         ↓
-sat.exe watch → 连接 127.0.0.1:8080 → 给页面注入 agent.js
+STranslateM.exe watch → 连接 127.0.0.1:8080 → 给页面注入 agent.js
         ↓
-agent.js 采集页面文字 → 经 sat.exe 调翻译源 → 把中文插回页面
+agent.js 采集页面文字 → 经 STranslateM.exe 调翻译源 → 把中文插回页面
 ```
 
 实现上有两个坑，代码里已处理：
@@ -35,11 +35,11 @@ agent.js 采集页面文字 → 经 sat.exe 调翻译源 → 把中文插回页�
 
 ### 方式一：双击安装包（推荐）
 
-1. 下载 `SteamAutoTranslate-Setup-0.1.0.exe`
+1. 下载 `STranslateM-Setup-0.1.1.exe`
 2. 双击运行，按提示安装（默认装到 `%LOCALAPPDATA%\SteamAutoTranslate`）
    - 自动在 Steam 目录创建调试标记文件
-   - 自动设置登录时运行监听器
-   - 自动启动监听器，并创建开始菜单的「安装状态 / 卸载」快捷方式
+   - **默认按需模式**：不常驻，双击 Steam 后 1 分钟内自动开始翻译
+   - 创建桌面「STranslateM」与开始菜单快捷方式（可切常驻模式）
 3. **完全退出 Steam 再重新打开**（标记文件必须在 Steam 启动前存在）
 4. 打开 Steam 的商店 / 创意工坊 / 社区页面，右下角出现「译」按钮
 
@@ -47,7 +47,7 @@ agent.js 采集页面文字 → 经 sat.exe 调翻译源 → 把中文插回页�
 
 ### 方式二：便携 ZIP
 
-1. 下载并解压 `SteamAutoTranslate-0.1.0.zip`
+1. 下载并解压 `SteamAutoTranslate-0.1.1.zip`
 2. 双击 `install.bat`
 3. **完全退出 Steam 再重新打开**
 
@@ -57,7 +57,7 @@ agent.js 采集页面文字 → 经 sat.exe 调翻译源 → 把中文插回页�
 
 ```bash
 bun install   # 无第三方依赖，可跳过
-bun run build # 产出 dist/sat.exe
+bun run build # 产出 dist/STranslateM.exe
 ```
 
 开发时也可以直接 `node src/cli.mjs install`。
@@ -114,25 +114,34 @@ bun run build # 产出 dist/sat.exe
 
 ### 按需模式（省内存，推荐 16GB 内存）
 
-- 桌面双击 **「Steam 中文版」**：启动 Steam 并开始翻译
-- 关闭 Steam 后监听器自动退出，**不占后台内存**
-- 开始菜单 → Steam 自动翻译 → **常驻模式：关** 可切到按需模式
+- 后台**没有常驻进程**
+- **直接双击 Steam 就行**：每分钟检查一次，Steam 在跑就自动启动监听器；关闭 Steam 后监听器自动退出
+- 想立刻开始：双击桌面 **「STranslateM」**
+- 开始菜单 → STranslateM → **常驻模式：关** 可切到按需模式
 
 ### 常驻模式
 
 - 开机自启（隐藏窗口，不弹黑框），每 5 分钟守护一次
 - 空闲约 20–40MB，CPU 几乎为 0
-- 开始菜单 → Steam 自动翻译 → **常驻模式：开** 可切回常驻
+- 开始菜单 → STranslateM → **常驻模式：开** 可切回常驻
 
 切换命令：
 ```bash
-sat.exe autostart off   # 关闭常驻，改用桌面「Steam 中文版」
-sat.exe autostart on    # 恢复开机自启 + 守护
+STranslateM.exe autostart off   # 按需模式：不常驻，双击 Steam 1 分钟内自动开始
+STranslateM.exe autostart on    # 常驻模式：开机自启 + 5 分钟守护
 ```
+
+## 便携版（单文件）
+
+`STranslateM.exe` 是单文件程序，直接复制走就能用：
+
+- 放到任意可写目录，运行即可
+- 配置与缓存保存在 exe 旁边的 `STranslateM-data` 文件夹（连文件夹一起拷走就能迁移）
+- 安装目录里的 `STranslateM.exe` 仍使用 `%APPDATA%\SteamAutoTranslate`
 
 ## 卸载
 
-双击 `uninstall.bat`（或 `sat.exe uninstall`）：停止监听器、移除开机自启、删除 Steam 目录里的调试标记文件。配置和缓存保留在 `%APPDATA%\SteamAutoTranslate`，可手动删除。
+双击 `uninstall.bat`（或 `STranslateM.exe uninstall`）：停止监听器、移除开机自启、删除 Steam 目录里的调试标记文件。配置和缓存保留在 `%APPDATA%\SteamAutoTranslate`，可手动删除。
 
 ## 已知限制
 
@@ -144,7 +153,7 @@ sat.exe autostart on    # 恢复开机自启 + 守护
 
 ## 安全与隐私
 
-- 调试端口只绑定 `127.0.0.1`，不对局域网开放；但本机其它程序理论上可连。不需要时用 `sat.exe uninstall` / `sat.exe disable` 关闭
+- 调试端口只绑定 `127.0.0.1`，不对局域网开放；但本机其它程序理论上可连。不需要时用 `STranslateM.exe uninstall` / `STranslateM.exe disable` 关闭
 - 不读取 Steam 账号、密码、Cookie
 - 待翻译文本会发送到你选择的翻译服务（默认 Bing；配置 Key 后发给你配置的服务商）
 - 缓存与配置只存在本机
@@ -155,7 +164,7 @@ sat.exe autostart on    # 恢复开机自启 + 守护
 npm run build:agent   # 由 src/agent.js 生成内嵌脚本
 npm test              # 核心逻辑单测
 npm run e2e           # 用 Edge + 本地页验证 CDP 注入（需要本机 Edge）
-npm run build         # 生成 dist/sat.exe（bun build --compile）
+npm run build         # 生成 dist/STranslateM.exe（bun build --compile）
 ```
 
 目录：
